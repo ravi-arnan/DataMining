@@ -1,0 +1,17 @@
+{
+  "apr_support": 4.73,
+  "apr_confidence": 7.84,
+  "apr_final": 10.77,
+  "km_euclidean": 5.88,
+  "km_assign": 6.38,
+  "km_centroid": 3.34,
+  "km_sse": 5.14,
+  "ag_euclidean": 5.43,
+  "ag_matriks": 7.55,
+  "ag_single": 6.97,
+  "ag_complete": 7.48,
+  "ag_average": 8.46,
+  "ag_argmin": 4.45,
+  "ag_update": 8.81,
+  "ag_gap": 6.78
+}

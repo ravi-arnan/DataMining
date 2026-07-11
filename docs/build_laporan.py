@@ -294,10 +294,23 @@ def caption(doc, reg, cat, label):
     reg.append(dict(cat=cat, level=0, label=label, token=tok))
 
 
+def _tight_cell_margin(tbl, twips=40):
+    mar = OxmlElement('w:tblCellMar')
+    for side in ('top', 'bottom', 'left', 'right'):
+        e = OxmlElement(f'w:{side}'); e.set(qn('w:w'), str(twips)); e.set(qn('w:type'), 'dxa')
+        mar.append(e)
+    tbl._tbl.tblPr.append(mar)
+
+
 def add_image(doc, fname, width_cm):
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(6)
-    p.add_run().add_picture(os.path.join(FIG, fname), width=Cm(width_cm))
+    # Gambar dibungkus kotak berbingkai (tabel 1-sel) FULL-WIDTH (sejajar margin,
+    # seperti tabel data); gambar mengisi kotak & di tengah; caption tetap di bawah.
+    doc.add_paragraph()                      # jarak 1 enter sebelum kotak gambar
+    tbl = doc.add_table(rows=1, cols=1); tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    set_table_borders(tbl); set_table_fullwidth(tbl); _tight_cell_margin(tbl)
+    p = tbl.cell(0, 0).paragraphs[0]; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(0); p.paragraph_format.space_after = Pt(0)
+    p.add_run().add_picture(os.path.join(FIG, fname), width=Cm(min(width_cm, 13.5)))
 
 
 import json as _json
@@ -357,9 +370,18 @@ def cell(c, text, bold=False, size=10, left=False):
     r = p.add_run(str(text)); r.bold = bold; r.font.name = FONT; r.font.size = Pt(size)
 
 
+def set_table_fullwidth(tbl):
+    """Paksa lebar tabel = 100% area teks (sejajar margin kiri & kanan)."""
+    tblPr = tbl._tbl.tblPr
+    for el in tblPr.findall(qn('w:tblW')):
+        tblPr.remove(el)
+    w = OxmlElement('w:tblW'); w.set(qn('w:type'), 'pct'); w.set(qn('w:w'), '5000')
+    tblPr.append(w)
+
+
 def make_table(doc, headers, rows, size=10):
     tbl = doc.add_table(rows=1, cols=len(headers)); tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
-    set_table_borders(tbl)
+    set_table_borders(tbl); set_table_fullwidth(tbl)
     for j, h in enumerate(headers):
         cell(tbl.rows[0].cells[j], h, bold=True, size=size); set_cell_bg(tbl.rows[0].cells[j], 'D9D9D9')
     for r in rows:
@@ -836,7 +858,8 @@ def build_body(doc, reg):
     h3num(doc, reg, '4.3.1', 'Pembentukan Matriks Jarak Awal')
     body(doc, 'Langkah pertama adalah menghitung jarak Euclidean antar seluruh pasangan data. Karena terdapat 10 data, matriks jarak berukuran 10 x 10 dan bersifat simetris dengan diagonal nol. Matriks jarak awal ditampilkan pada Tabel 4.11.')
     caption(doc, reg, 'tbl', 'Tabel 4.11 Matriks Jarak Awal Antar Mahasiswa (Euclidean)')
-    t = doc.add_table(rows=1, cols=11); t.alignment = WD_TABLE_ALIGNMENT.CENTER; set_table_borders(t)
+    t = doc.add_table(rows=1, cols=11); t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    set_table_borders(t); set_table_fullwidth(t)
     cell(t.rows[0].cells[0], '', bold=True, size=9); set_cell_bg(t.rows[0].cells[0], 'D9D9D9')
     for j, nm in enumerate(names, 1):
         cell(t.rows[0].cells[j], nm, bold=True, size=9); set_cell_bg(t.rows[0].cells[j], 'D9D9D9')

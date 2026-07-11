@@ -25,9 +25,15 @@ from docx.oxml import OxmlElement
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIG = os.path.join(HERE, 'figures')
-TMP_DOCX = os.path.join(HERE, '_passA.docx')
-TMP_PDF = os.path.join(HERE, '_passA.pdf')
-OUT_DOCX = os.path.join(HERE, 'Laporan_Kelompok10_UTS_DataMining.docx')
+
+# Varian laporan: 'v2' pada argv menambah subbab 4.4 (analisis centroid awal di
+# titik terjauh / outlier) DAN memakai nama file terpisah, sehingga laporan asli
+# tetap utuh dan reproducible. Tanpa 'v2' hasilnya identik dengan versi awal.
+INCLUDE_TERJAUH = 'v2' in sys.argv
+_SUFFIX = '_TitikTerjauh' if INCLUDE_TERJAUH else ''
+TMP_DOCX = os.path.join(HERE, f'_passA{_SUFFIX}.docx')
+TMP_PDF = os.path.join(HERE, f'_passA{_SUFFIX}.pdf')
+OUT_DOCX = os.path.join(HERE, f'Laporan_Kelompok10_UTS_DataMining{_SUFFIX}.docx')
 
 FONT = 'Times New Roman'
 MONO = 'Courier New'
@@ -836,6 +842,53 @@ def build_body(doc, reg):
     caption(doc, reg, 'fig', 'Gambar 4.9 Perbandingan Empat Metode Linkage')
     body(doc, 'Pada Gambar 4.9 terlihat bahwa keempat metode linkage menghasilkan struktur hirarki yang serupa, yaitu tiga klaster yang sama: {A, B, C}, {D, E, F}, dan {G, H, I, J}. Perbedaan utama terletak pada skala ketinggian penggabungan. Metode single linkage menghasilkan jarak penggabungan paling rendah karena mengambil nilai minimum antar anggota, sedangkan complete linkage menghasilkan skala paling tinggi karena memilih jarak maksimum antar anggota. Metode average dan ward berada di antaranya dengan pola yang lebih halus. Karena ketiga kelompok pada data terpisah cukup jelas, pilihan metode linkage tidak mengubah hasil klaster final, melainkan hanya mempengaruhi skala ketinggian pada dendrogram. Hal ini menunjukkan bahwa pada data dengan kelompok yang terpisah baik, Agglomerative Clustering bersifat robust terhadap pilihan metode linkage.')
 
+    # ----- 4.4 Analisis Centroid Awal di Titik Terjauh (hanya varian v2) -----
+    if INCLUDE_TERJAUH:
+        # Hitung dua skenario: centroid awal di DALAM vs di LUAR layer.
+        mean_c = Xc.mean(axis=0)
+        jd = np.sqrt(((Xc - mean_c) ** 2).sum(axis=1))
+        i_far, i_cen = int(jd.argmax()), int(jd.argmin())
+        namesP = [f'P{i + 1}' for i in range(len(Xc))]
+        C2fix = Xc[1]  # P2, centroid kedua dibuat tetap
+        cD, lD, hD = kmeans_manual(Xc, [Xc[i_cen], C2fix])   # C1 di dalam layer
+        cL, lL, hL = kmeans_manual(Xc, [Xc[i_far], C2fix])   # C1 di luar layer (outlier)
+
+        def _mem(lab, k):
+            return ', '.join(namesP[i] for i in range(len(lab)) if lab[i] == k)
+
+        def _fmt(p):
+            return f'({int(round(p[0]))}, {int(round(p[1]))})'
+
+        rD = f'{int((lD == 0).sum())} : {int((lD == 1).sum())}'
+        rL = f'{int((lL == 0).sum())} : {int((lL == 1).sum())}'
+
+        doc.add_page_break()
+        h2num(doc, reg, '4.4', 'Analisis Pengaruh Centroid Awal terhadap Outlier')
+        body(doc, f'Perhitungan pada subbab 4.2.1 memakai centroid awal yang berada di dalam sebaran data. Untuk menguji sensitivitas K-Means terhadap pemilihan centroid awal, dilakukan percobaan tambahan dengan menempatkan salah satu centroid awal tepat di titik terjauh (outlier) dari kerumunan data. Jarak setiap titik terhadap rata-rata data dihitung, dan diperoleh {namesP[i_far]} = {_fmt(Xc[i_far])} sebagai titik terjauh (berada di luar layer/kerumunan) serta {namesP[i_cen]} = {_fmt(Xc[i_cen])} sebagai titik paling sentral (di dalam layer). Dua skenario dibandingkan, dengan centroid kedua sengaja dibuat sama (C2 tetap = P2) agar perbedaan hasil murni disebabkan oleh perpindahan centroid pertama.')
+        numbered(doc, 1, f'Skenario A (di dalam layer): centroid awal C1 = {namesP[i_cen]} {_fmt(Xc[i_cen])} dan C2 = P2 {_fmt(C2fix)}.')
+        numbered(doc, 2, f'Skenario B (di luar layer): centroid awal C1 = {namesP[i_far]} {_fmt(Xc[i_far])} (titik terjauh) dan C2 = P2 {_fmt(C2fix)}.')
+        body(doc, 'Percobaan ini menjawab dua pertanyaan: (1) apa yang berbeda jika centroid awal diletakkan di titik terjauh/outlier, dan (2) apakah anggota klaster berubah atau tetap sama. Perbandingan kedua skenario ditampilkan pada Tabel 4.13 dan divisualisasikan pada Gambar 4.10.')
+
+        caption(doc, reg, 'tbl', 'Tabel 4.13 Perbandingan Centroid Awal di Dalam vs di Luar Layer')
+        make_table(doc,
+                   ['Aspek', 'A - Dalam Layer', 'B - Luar Layer'],
+                   [
+                       ('Centroid awal C1', f'{namesP[i_cen]} {_fmt(Xc[i_cen])}', f'{namesP[i_far]} {_fmt(Xc[i_far])}'),
+                       ('Centroid awal C2 (tetap)', f'P2 {_fmt(C2fix)}', f'P2 {_fmt(C2fix)}'),
+                       ('Posisi C1', 'di dalam kerumunan', 'di outlier (luar layer)'),
+                       ('Jumlah iterasi', str(len(hD)), str(len(hL))),
+                       ('Centroid akhir C1', _fmt(cD[0]), _fmt(cL[0])),
+                       ('Centroid akhir C2', _fmt(cD[1]), _fmt(cL[1])),
+                       ('Rasio anggota (K1 : K2)', rD, rL),
+                       ('Anggota Klaster 1', _mem(lD, 0), _mem(lL, 0)),
+                       ('Anggota Klaster 2', _mem(lD, 1), _mem(lL, 1)),
+                   ])
+        add_image(doc, 'km_terjauh.png', 14)
+        caption(doc, reg, 'fig', 'Gambar 4.10 Perbandingan Centroid Awal di Dalam vs di Luar Layer')
+
+        body(doc, f'Jawaban pertanyaan pertama: ketika centroid awal diletakkan di titik terjauh {namesP[i_far]}, titik tersebut langsung menjadi klaster yang berisi satu anggota saja. Pembagian yang semula wajar ({rD}, memisahkan kelompok Income rendah dan Income tinggi) berubah menjadi timpang ({rL}), yaitu satu klaster hanya berisi outlier dan satu klaster menampung sembilan titik sisanya. Hal ini terjadi karena {namesP[i_far]} memiliki Income yang jauh lebih tinggi (253) dibanding titik lain (18 sampai 115), sehingga tidak ada titik lain yang lebih dekat kepadanya. Karena anggota klaster tersebut hanya satu titik, pembaruan centroid (rata-rata anggota) mengembalikan posisi yang sama, sehingga centroid terkunci di outlier.')
+        body(doc, f'Jawaban pertanyaan kedua: anggota klaster berubah total. Dari rasio {rD} pada skenario di dalam layer menjadi {rL} pada skenario di luar layer, padahal yang diubah hanya satu centroid awal (C2 dibuat tetap). Hal ini membuktikan bahwa K-Means sangat sensitif terhadap posisi centroid awal dan keberadaan outlier. Menaruh centroid awal di titik terjauh menghasilkan klaster yang tidak informatif. Oleh karena itu, praktik yang dianjurkan adalah melakukan standarisasi data agar skala Income tidak mendominasi, menggunakan inisialisasi k-means++ agar centroid awal tersebar dan menghindari outlier, serta mengulang inisialisasi beberapa kali (n_init) dan memilih hasil terbaik.')
+
     # ============================================================ BAB V
     doc.add_page_break()
     bab(doc, reg, 'V', 'PENUTUP')
@@ -846,6 +899,8 @@ def build_body(doc, reg):
     numbered(doc, 2, 'Algoritma K-Means konvergen dalam empat iterasi untuk K=2 dengan centroid awal P1 dan P2. Elbow Method menunjukkan titik siku berada di sekitar K=2 atau K=3, sehingga kedua nilai ini menjadi kandidat K optimal sesuai karakteristik data. Standarisasi atribut (Z-Score) penting karena skala Income jauh lebih besar daripada Age.')
     numbered(doc, 3, 'Algoritma Agglomerative Hierarchical Clustering berhasil membentuk hirarki klaster pada 10 mahasiswa dengan sembilan iterasi penggabungan menggunakan single linkage. Matriks jarak diperbarui pada setiap iterasi dengan rumus minimum. Jumlah klaster final ditentukan dari lompatan ketinggian penggabungan terbesar, yang menghasilkan tiga klaster, bukan dua. Hasil ini sekaligus menegaskan bahwa jumlah klaster pada Agglomerative bergantung pada karakteristik data dan letak pemotongan dendrogram.')
     numbered(doc, 4, 'Ketiga algoritma memiliki tujuan berbeda. Apriori untuk menemukan keterkaitan antaritem, K-Means untuk pengelompokan dengan jumlah klaster yang ditentukan di awal, sedangkan Agglomerative Clustering untuk membentuk hirarki klaster lengkap tanpa perlu menentukan jumlah klaster terlebih dahulu. Pemilihan algoritma yang tepat bergantung pada karakteristik data dan tujuan analisis.')
+    if INCLUDE_TERJAUH:
+        numbered(doc, 5, 'Percobaan tambahan menunjukkan bahwa K-Means sangat sensitif terhadap posisi centroid awal. Menempatkan centroid awal di titik terjauh (outlier P5) membuat outlier menjadi klaster sendirian dan mengubah pembagian anggota dari 7 : 3 menjadi 1 : 9, meskipun hanya satu centroid yang dipindahkan. Hal ini menegaskan pentingnya standarisasi data, inisialisasi k-means++, dan pengulangan n_init untuk memperoleh hasil klaster yang stabil.')
 
     h2num(doc, reg, '5.2', 'Saran')
     body(doc, 'Beberapa saran untuk pengembangan penelitian selanjutnya adalah sebagai berikut.', indent=False)

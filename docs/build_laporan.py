@@ -6,6 +6,7 @@ Pakai:  python build_laporan.py passA   (lalu konversi PDF)
         python build_laporan.py passB   (baca PDF passA, tulis docx final)
 """
 import os
+import re
 import sys
 import subprocess
 import numpy as np
@@ -31,9 +32,12 @@ FIG = os.path.join(HERE, 'figures')
 # tetap utuh dan reproducible. Tanpa 'v2' hasilnya identik dengan versi awal.
 INCLUDE_TERJAUH = 'v2' in sys.argv
 _SUFFIX = '_TitikTerjauh' if INCLUDE_TERJAUH else ''
+ROOT = os.path.dirname(HERE)  # root proyek /DataMining
 TMP_DOCX = os.path.join(HERE, f'_passA{_SUFFIX}.docx')
 TMP_PDF = os.path.join(HERE, f'_passA{_SUFFIX}.pdf')
-OUT_DOCX = os.path.join(HERE, f'Laporan_Kelompok10_UTS_DataMining{_SUFFIX}.docx')
+# Laporan final (v2) diletakkan di root proyek; versi baseline tetap di docs/.
+OUT_DOCX = os.path.join(ROOT if INCLUDE_TERJAUH else HERE,
+                        f'Laporan_Kelompok10_UTS_DataMining{_SUFFIX}.docx')
 
 FONT = 'Times New Roman'
 MONO = 'Courier New'
@@ -196,6 +200,15 @@ def add_token(p, token):
     r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r.font.size = Pt(1); r.font.name = FONT
 
 
+def force_tnr(r):
+    """Paksa run pakai Times New Roman (heading style Word default-nya theme=Calibri)."""
+    r.font.name = FONT
+    rf = r._element.get_or_add_rPr().get_or_add_rFonts()
+    for a in ('w:ascii', 'w:hAnsi', 'w:cs', 'w:eastAsia'):
+        rf.set(qn(a), FONT)
+    return r
+
+
 def body(doc, text, indent=True, justify=True):
     p = doc.add_paragraph()
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
@@ -228,21 +241,30 @@ def plain_center(doc, text, bold=False, size=12, sb=0, sa=0):
 def bab(doc, reg, roman, title):
     tok = f'ZT{len(reg):03d}'
     p1 = doc.add_heading(level=1); p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p1.add_run(f'BAB {roman}')
+    p1.paragraph_format.space_after = Pt(0)
+    force_tnr(p1.add_run(f'BAB {roman}'))
     p2 = doc.add_heading(level=1); p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p2.add_run(title); add_token(p2, tok)
+    p2.paragraph_format.space_before = Pt(0)  # rapatkan judul BAB ke baris "BAB X"
+    force_tnr(p2.add_run(title)); add_token(p2, tok)
+    doc.add_paragraph()  # jarak 1 enter setelah judul BAB sebelum isi
     reg.append(dict(cat='toc', level=0, label=f'BAB {roman} {title}', token=tok))
 
 
 def h2num(doc, reg, num, title):
     tok = f'ZT{len(reg):03d}'
-    p = doc.add_heading(level=2); p.add_run(f'{num}\t{title}'); add_token(p, tok)
+    p = doc.add_heading(level=2)
+    p.paragraph_format.left_indent = Cm(0)
+    p.paragraph_format.tab_stops.add_tab_stop(Cm(1.0))  # judul sejajar indent body
+    force_tnr(p.add_run(f'{num}\t{title}')); add_token(p, tok)
     reg.append(dict(cat='toc', level=1, label=f'{num} {title}', token=tok))
 
 
 def h3num(doc, reg, num, title):
     tok = f'ZT{len(reg):03d}'
-    p = doc.add_heading(level=3); p.add_run(f'{num}\t{title}'); add_token(p, tok)
+    p = doc.add_heading(level=3)
+    p.paragraph_format.left_indent = Cm(0)
+    p.paragraph_format.tab_stops.add_tab_stop(Cm(1.0))  # judul sejajar indent body
+    force_tnr(p.add_run(f'{num}\t{title}')); add_token(p, tok)
     reg.append(dict(cat='toc', level=2, label=f'{num} {title}', token=tok))
 
 
@@ -254,10 +276,20 @@ def special_heading(doc, reg, title):
 
 def caption(doc, reg, cat, label):
     tok = f'Z{cat[0].upper()}{len(reg):03d}'
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Caption tabel data: DI ATAS, RATA KIRI, dan diberi jarak 1 baris sebelumnya.
+    # Caption gambar / kode program: DI BAWAH, DI TENGAH (dipanggil setelah objeknya).
+    if cat == 'tbl':
+        doc.add_paragraph()  # jarak enter sekali sebelum tabel
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT if cat == 'tbl' else WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     p.paragraph_format.space_after = Pt(6)
-    r = p.add_run(label); r.bold = True; r.font.size = Pt(11); r.font.name = FONT
+    # Label ("Tabel 4.1" / "Gambar 4.6" / "Kode Program 4.1") BOLD, deskripsi biasa; size 10.
+    m = re.match(r'^((?:Tabel|Gambar|Kode Program)\s+\d+\.\d+)(.*)$', label)
+    bold_part, rest = (m.group(1), m.group(2)) if m else (label, '')
+    r1 = p.add_run(bold_part); r1.bold = True; r1.font.size = Pt(10); r1.font.name = FONT
+    if rest:
+        r2 = p.add_run(rest); r2.bold = False; r2.font.size = Pt(10); r2.font.name = FONT
     add_token(p, tok)
     reg.append(dict(cat=cat, level=0, label=label, token=tok))
 
@@ -338,6 +370,7 @@ def make_table(doc, headers, rows, size=10):
 
 
 def code_box(doc, code_text):
+    doc.add_paragraph()  # jarak enter sekali sebelum "tabel" kode
     tbl = doc.add_table(rows=1, cols=1); tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
     set_table_borders(tbl)
     c = tbl.cell(0, 0); c.text = ''
@@ -745,8 +778,8 @@ def build_body(doc, reg):
         rows_top.append((f"{r['A']} → {r['B']}", f"{r['sup']:.2f}", f"{r['conf']:.2f}", f"{r['final']:.3f}"))
     make_table(doc, ['Aturan', 'Support', 'Confidence', 'Final'], rows_top)
     body(doc, 'Aturan terkuat adalah teh → gula dengan support 0.50, confidence 1.00, dan nilai final 0.500. Hal ini berarti seluruh transaksi yang memuat teh juga memuat gula, sehingga aturan ini paling layak dijadikan rekomendasi cross-selling. Implementasi kode program Apriori ditampilkan pada Kode Program 4.1.')
-    caption(doc, reg, 'code', 'Kode Program 4.1 Implementasi Algoritma Apriori')
     code_box(doc, APRIORI_CODE)
+    caption(doc, reg, 'code', 'Kode Program 4.1 Implementasi Algoritma Apriori')
 
     # ----- 4.2 K-Means -----
     doc.add_page_break()
@@ -787,8 +820,8 @@ def build_body(doc, reg):
 
     h3num(doc, reg, '4.2.3', 'Kode Program')
     body(doc, 'Implementasi K-Means manual dan otomatis ditampilkan pada Kode Program 4.2.')
-    caption(doc, reg, 'code', 'Kode Program 4.2 Implementasi K-Means dengan Elbow Method')
     code_box(doc, KMEANS_CODE)
+    caption(doc, reg, 'code', 'Kode Program 4.2 Implementasi K-Means dengan Elbow Method')
 
     # ----- 4.3 Agglomerative -----
     doc.add_page_break()
@@ -822,8 +855,8 @@ def build_body(doc, reg):
 
     h3num(doc, reg, '4.3.3', 'Kode Program')
     body(doc, 'Implementasi Agglomerative Clustering manual dan verifikasi dengan SciPy ditampilkan pada Kode Program 4.3.')
-    caption(doc, reg, 'code', 'Kode Program 4.3 Implementasi Agglomerative Clustering Manual')
     code_box(doc, AGG_CODE)
+    caption(doc, reg, 'code', 'Kode Program 4.3 Implementasi Agglomerative Clustering Manual')
 
     h3num(doc, reg, '4.3.4', 'Hasil dan Penentuan Jumlah Klaster')
     body(doc, 'Hasil seluruh proses penggabungan divisualisasikan dalam bentuk dendrogram pada Gambar 4.6. Garis putus-putus merah menunjukkan titik potong otomatis pada ketinggian sekitar 2.51.')
@@ -931,21 +964,21 @@ def build_body(doc, reg):
 
 # ============================================================ FRONT MATTER
 def build_cover(doc):
-    plain_center(doc, 'LAPORAN UJIAN TENGAH SEMESTER', bold=True, sb=24)
-    plain_center(doc, 'MATA KULIAH DATA MINING', bold=True, sa=18)
+    # Spasi antar-blok dibuat lega agar isi cover mengisi halaman (tidak menumpuk di atas).
+    plain_center(doc, 'LAPORAN UJIAN TENGAH SEMESTER', bold=True, sb=30)
+    plain_center(doc, 'MATA KULIAH DATA MINING', bold=True, sa=6)
     pic = doc.add_paragraph(); pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pic.paragraph_format.space_before = Pt(30)
     pic.add_run().add_picture(os.path.join(FIG, 'logo_udayana.png'), width=Cm(4.5))
-    plain_center(doc, '', sa=12)
-    plain_center(doc, 'DOSEN PENGAMPU', bold=True, sb=12)
-    plain_center(doc, 'Dr. Eng. I Putu Agung Bayupati, S.T., M.T.', sa=18)
-    plain_center(doc, 'DISUSUN OLEH:', bold=True, sb=12)
+    plain_center(doc, 'DOSEN PENGAMPU', bold=True, sb=66)
+    plain_center(doc, 'Dr. Eng. I Putu Agung Bayupati, S.T., M.T.')
+    plain_center(doc, 'DISUSUN OLEH:', bold=True, sb=60)
     plain_center(doc, 'KELOMPOK 10', bold=True)
     for nm, nim in [('Ravi Arnan Irianto', '2305551076'),
                     ('Ezza Putra Wibawa', '2305551144'),
                     ('Ketut Riski Prananda', '2005551125')]:
         plain_center(doc, f'{nm}\t\t({nim})')
-    plain_center(doc, '', sa=18)
-    plain_center(doc, 'PROGRAM STUDI TEKNOLOGI INFORMASI', bold=True, sb=18)
+    plain_center(doc, 'PROGRAM STUDI TEKNOLOGI INFORMASI', bold=True, sb=120)
     plain_center(doc, 'FAKULTAS TEKNIK', bold=True)
     plain_center(doc, 'UNIVERSITAS UDAYANA', bold=True)
     plain_center(doc, 'BALI', bold=True)

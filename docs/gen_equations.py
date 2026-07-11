@@ -3,6 +3,7 @@ import os
 import json
 import matplotlib
 matplotlib.use('Agg')
+matplotlib.rcParams['mathtext.fontset'] = 'stix'  # rumus serif ala Times (match body TNR)
 import matplotlib.pyplot as plt
 from PIL import Image, ImageChops
 

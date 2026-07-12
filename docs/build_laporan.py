@@ -918,7 +918,6 @@ def build_body(doc, reg):
         rD = f'{int((lD == 0).sum())} : {int((lD == 1).sum())}'
         rL = f'{int((lL == 0).sum())} : {int((lL == 1).sum())}'
 
-        doc.add_page_break()
         h2num(doc, reg, '4.4', 'Analisis Pengaruh Centroid Awal terhadap Outlier')
         body(doc, f'Perhitungan pada subbab 4.2.1 memakai centroid awal yang berada di dalam sebaran data. Untuk menguji sensitivitas K-Means terhadap pemilihan centroid awal, dilakukan percobaan tambahan dengan menempatkan salah satu centroid awal tepat di titik terjauh (outlier) dari kerumunan data. Jarak setiap titik terhadap rata-rata data dihitung, dan diperoleh {namesP[i_far]} = {_fmt(Xc[i_far])} sebagai titik terjauh (berada di luar layer/kerumunan) serta {namesP[i_cen]} = {_fmt(Xc[i_cen])} sebagai titik paling sentral (di dalam layer). Dua skenario dibandingkan, dengan centroid kedua sengaja dibuat sama (C2 tetap = P2) agar perbedaan hasil murni disebabkan oleh perpindahan centroid pertama.')
         numbered(doc, 1, f'Skenario A (di dalam layer): centroid awal C1 = {namesP[i_cen]} {_fmt(Xc[i_cen])} dan C2 = P2 {_fmt(C2fix)}.')

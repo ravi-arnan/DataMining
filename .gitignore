@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Third-party reference article saved for reading, not ours to redistribute.
+docs/*.pdf
